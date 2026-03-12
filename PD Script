@@ -1,0 +1,382 @@
+-- // ======================================================== //
+-- // KRALTIS HUB V3 | DYNAMISCHE & MANUELLE VOLLVERSION //
+-- // ======================================================== //
+
+Falls game:IsLoaded() nicht wahr ist, dann warte mit game.Loaded().
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local TextChatService = game:GetService("TextChatService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local myName = "kraltis"
+local configFile = "kraltis_v3_final.json"
+local Pastebin_Link = "https://pastebin.com/raw/jqR3yyNt"
+
+-- // --- STANDKOORDINATEN --- //
+lokale STAND_POINTS = {
+    Vector3.new(138.152, 0.98, 382.785), Vector3.new(126.894, 0.98, 376.285),
+    Vector3.new(115.635, 0.98, 369.785), Vector3.new(104.369, 0.98, 358.496),
+    Vector3.new(97.869, 0.98, 347.237), Vector3.new(91.369, 0.98, 335.979),
+    Vector3.new(87.293, 0.98, 323.160), Vector3.new(87.293, 0.98, 291.160),
+    Vector3.new(91.401, 0.98, 279.169), Vector3.new(97.901, 0.98, 267.910),
+    Vector3.new(104.401, 0.98, 256.652), Vector3.new(115.689, 0.98, 245.386),
+    Vector3.new(126.948, 0.98, 238.886), Vector3.new(138.206, 0.98, 232.386),
+    Vector3.new(195.017, 0.98, 232.417), Vector3.new(206.275, 0.98, 238.917),
+    Vector3.new(217.533, 0.98, 245.417), Vector3.new(228.799, 0.98, 256.706),
+    Vector3.new(235.299, 0.98, 267.964), Vector3.new(241.799, 0.98, 279.223),
+    Vector3.new(245.799, 0.98, 291.223), Vector3.new(245.799, 0.98, 323.223),
+    Vector3.new(241.768, 0.98, 336.033), Vector3.new(235.268, 0.98, 347.292),
+    Vector3.new(228.768, 0.98, 358.550), Vector3.new(217.479, 0.98, 369.816),
+    Vector3.new(206.221, 0.98, 376.316), Vector3.new(194.962, 0.98, 382.816)
+}
+
+-- Tanz-Emotes
+local DANCE_EMOTES = {
+    "/e dance", "/e dance2", "/e dance3"
+}
+
+lokale Einstellungen = {
+    antiAfk = false,
+    autoChat = false,
+    autoChatInterval = 300,
+    autoChatMessage = "Hallo Leute, könntet ihr mir helfen, ein einzelnes Teil zu finden?",
+    autoThanks = false,
+    Dankesnachricht = "Danke, Mann, ich weiß das zu schätzen",
+    autoHop = false,
+    hopInterval = 900,
+    autoClaim = true,
+    autoDance = false,
+    danceInterval = 10,
+    guiVisible = true
+}
+
+-- GUI-Schaltflächenreferenz
+local autoClaimButton = nil
+
+-- Konfigurationsverwaltung
+lokale Funktion save()
+    pcall(function()
+        Wenn writefile dann
+            local saveData = {}
+            for k,v in pairs(settings) do
+                saveData[k] = v
+            Ende
+            saveData.autoClaim = true
+            writefile(configFile, HttpService:JSONEncode(saveData))
+        Ende
+    Ende)
+Ende
+
+lokale Funktion load()
+    pcall(function()
+        Wenn isfile und isfile(configFile) dann
+            local d = HttpService:JSONDecode(readfile(configFile))
+            für k,v in Paaren(d) tue
+                Einstellungen[k] = v
+            Ende
+            settings.autoClaim = true
+        Ende
+    Ende)
+Ende
+laden()
+
+-- Server-Hop-System
+lokale Funktion serverHop()
+    settings.autoClaim = true
+    speichern()
+    
+    local x = {}
+    pcall(function()
+        local data = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100")).data
+        for _, v in ipairs(data) do
+            Wenn v.maxPlayers > v.playing + 1 und v.id ~= game.JobId dann
+                x[#x + 1] = v.id
+            Ende
+        Ende
+    Ende)
+    
+    Wenn #x > 0 dann
+        if queue_on_teleport then queue_on_teleport('loadstring(game:HttpGet("' .. Pastebin_Link .. '"))()') end
+        local randomServer = x[math.random(1, #x)]
+        print("🔄 Wechsel zum neuen Server... (Leerer Slot: verfügbar)")
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer)
+    anders
+        print("⚠️ Kein geeigneter Server gefunden, erneuter Versuch...")
+        task.wait(5)
+        serverHop()
+    Ende
+Ende
+
+-- Chat-System
+lokale Funktion say(msg)
+    Wenn msg nicht oder msg gleich "" ist, dann gib das Ende zurück
+    pcall(function()
+        Wenn TextChatService.ChatVersion == Enum.ChatVersion.TextChatService dann
+            local ch = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+            if ch then ch:SendAsync(msg) end
+        anders
+            game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
+        Ende
+    Ende)
+Ende
+
+-- Überprüfen Sie die Meldung "Belegter Stand!"
+lokale Funktion checkForClaimedMessage()
+    local playerGui = player:WaitForChild("PlayerGui")
+    
+    for _, gui in pairs(playerGui:GetDescendants()) do
+        if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+            local text = gui.Text:lower()
+            Wenn text:find("claimed") und text:find("booth") dann
+                print("✅ Meldung 'Stand belegt!' erkannt!")
+                return true
+            Ende
+        Ende
+    Ende
+    return false
+Ende
+
+-- Die Taste E gedrückt halten
+lokale Funktion pressAndHoldE(Dauer)
+    pcall(function()
+        local VIM = game:GetService("VirtualInputManager")
+        VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(duration or 3)
+        VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+    Ende)
+Ende
+
+-- Logik für automatische Schadensmeldung
+lokale Funktion autoClaimLogic()
+    Wenn nicht settings.autoClaim, dann Rückgabe.
+    
+    local boothFolder = workspace:FindFirstChild("BoothModels")
+    Falls kein Booth-Ordner vorhanden ist, dann Rückgabe.
+
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    Wenn nicht hrp, dann Rückgabe Ende
+
+    local closestBooth = nil
+    local closestDistance = math.huge
+
+    for _, booth in pairs(boothFolder:GetChildren()) do
+        Wenn nicht booth:GetAttribute("OwnerId") oder booth:GetAttribute("OwnerId") == 0 dann
+            local boothPart = booth.PrimaryPart or booth:FindFirstChildWhichIsA("BasePart", true)
+            
+            Wenn BoothPart dann
+                for _, point in pairs(STAND_POINTS) do
+                    Wenn (boothPart.Position - point).Magnitude < 25 dann
+                        Lokale Distanz = (hrp.Position - boothPart.Position).Magnitude
+                        
+                        Wenn Entfernung < nächste Entfernung, dann
+                            nächster Abstand = Entfernung
+                            nächsterStand = Stand
+                        Ende
+                        brechen
+                    Ende
+                Ende
+            Ende
+        Ende
+    Ende
+
+    Wenn der nächstgelegene Booth dann
+        local boothPart = closestBooth.PrimaryPart or closestBooth:FindFirstChildWhichIsA("BasePart", true)
+        
+        Wenn BoothPart dann
+            print("Nächstgelegene leere Kabine gefunden, Teleportation...")
+            
+            hrp.CFrame = boothPart.CFrame * CFrame.new(0, 1.5, 3.5)
+            task.wait(0.5)
+            
+            print("Drücke E-Taste...")
+            pressAndHoldE(3)
+            task.wait(2)
+            
+            if checkForClaimedMessage() or (closestBooth:GetAttribute("OwnerId") and closestBooth:GetAttribute("OwnerId") ~= 0) then
+                settings.autoClaim = false
+                print("✅ Stand erfolgreich beansprucht! Automatische Beanspruchung deaktiviert.")
+                
+                -- Schaltfläche „GUI aktualisieren“
+                Wenn autoClaimButton dann
+                    autoClaimButton.Text = "Automatische Schadensmeldung (Smart): AUS"
+                    autoClaimButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+                Ende
+                
+                speichern()
+                
+                -- Teleportiere dich in die obere linke Ecke
+                task.wait(1)
+                Wenn hRP und boothPart dann
+                    hrp.CFrame = boothPart.CFrame * CFrame.new(-5, 2, -5)
+                    print("📍 Charakter wurde in die linke obere Ecke des Standes teleportiert.")
+                Ende
+                
+                zurückkehren
+            anders
+                print("⚠️ Stand konnte nicht beansprucht werden, erneuter Versuch...")
+            Ende
+        Ende
+    anders
+        print("⚠️ Kein freier Platz gefunden.")
+    Ende
+Ende
+
+-- GUI
+if CoreGui:FindFirstChild("KraltisHub") then CoreGui.KraltisHub:Destroy() end
+local ScreenGui = Instance.new("ScreenGui", CoreGui)
+ScreenGui.Name = "KraltisHub"
+
+local Main = Instance.new("Frame", ScreenGui)
+Main.Size = UDim2.new(0, 320, 0, 600)
+Main.Position = UDim2.new(0.5, -160, 0.5, -300)
+Main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Main.Active = true
+Main.Draggable = true
+Instance.new("UICorner", Main)
+
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(1, 0, 0, 45)
+Titel.Text = "KRALTIS HUB | V3 SMART CLAIM"
+Title.TextColor3 = Color3.fromRGB(255, 50, 50)
+Title.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Title.Font = Enum.Font.GothamBold
+Instance.new("UICorner", Title)
+
+local Scroll = Instance.new("ScrollingFrame", Main)
+Scroll.Size = UDim2.new(1, -20, 1, -60)
+Scroll.Position = UDim2.new(0, 10, 0, 50)
+Scroll.BackgroundTransparency = 1
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 650)
+Scroll.ScrollBarThickness = 2
+Instance.new("UIListLayout", Scroll).Padding = UDim.new(0, 8)
+
+lokale Funktion createToggle(txt, key)
+    local b = Instance.new("TextButton", Scroll)
+    b.Size = UDim2.new(1, 0, 0, 38)
+    b.Text = txt .. ": " .. (settings[key] and "ON" or "OFF")
+    b.BackgroundColor3 = settings[key] and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(45, 45, 45)
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", b)
+    b.MouseButton1Click:Connect(function()
+        settings[key] = not settings[key]
+        b.Text = txt .. ": " .. (settings[key] and "ON" or "OFF")
+        b.BackgroundColor3 = settings[key] and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(45, 45, 45)
+        speichern()
+    Ende)
+    Rückgabe b
+Ende
+
+lokale Funktion createInput(ph, key, isN)
+    local i = Instance.new("TextBox", Scroll)
+    i.Size = UDim2.new(1, 0, 0, 38)
+    i.PlaceholderText = ph
+    i.Text = tostring(settings[key] or "")
+    i.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    i.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", i)
+    i.FocusLost:Connect(function()
+        Wenn isN dann settings[key] = tonumber(i.Text) oder settings[key] sonst settings[key] = i.Text ~= "" und i.Text oder settings[key] Ende
+        speichern()
+    Ende)
+    return i
+Ende
+
+-- GUI-Elemente mit LayoutOrder
+lokale Ordnung = 0
+
+local item1 = createToggle("Anti-AFK", "antiAfk")
+item1.LayoutOrder = order; order = order + 1
+
+autoClaimButton = createToggle("Automatische Schadensmeldung (Smart)", "autoClaim")
+autoClaimButton.LayoutOrder = order; order = order + 1
+
+local item3 = createToggle("Auto Dance 💃", "autoDance")
+item3.LayoutOrder = order; order = order + 1
+
+local item4 = createInput("Tanzintervall (Sekunden)", "danceInterval", true)
+item4.LayoutOrder = order; order = order + 1
+
+local item5 = createToggle("Auto Chat", "autoChat")
+item5.LayoutOrder = order; order = order + 1
+
+local item6 = createInput("Chatnachricht bearbeiten", "autoChatMessage", false)
+item6.LayoutOrder = order; order = order + 1
+
+local item7 = createInput("Chat Interval (Seconds)", "autoChatInterval", true)
+item7.LayoutOrder = order; order = order + 1
+
+local item8 = createToggle("Spenden-Danke", "autoThanks")
+item8.LayoutOrder = order; order = order + 1
+
+local item9 = createInput("Edit Thanks Message", "thanksMessage", false)
+item9.LayoutOrder = order; order = order + 1
+
+local item10 = createToggle("Auto Server Hop", "autoHop")
+item10.LayoutOrder = order; order = order + 1
+
+local item11 = createInput("Hop Interval (Seconds)", "hopInterval", true)
+item11.LayoutOrder = order; order = order + 1
+
+local hBtn = Instance.new("TextButton", Scroll)
+hBtn.Size = UDim2.new(1, 0, 0, 45)
+hBtn.Text = "SOFORTIGER SERVER-HOP"
+hBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+hBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hBtn.Font = Enum.Font.GothamBold
+hBtn.LayoutOrder = order
+Instance.new("UICorner", hBtn)
+hBtn.MouseButton1Click:Connect(function()
+    print("🔄 Manueller Server-Hop initiiert...")
+    serverHop()
+Ende)
+
+-- Schleifen
+task.spawn(function()
+    while task.wait(1) do
+        Wenn die Einstellung „autoChat“ aktiviert ist, dann sage (Einstellungen.autoChatMessage) und warte (Einstellungen.autoChatIntervall).
+    Ende
+Ende)
+
+task.spawn(function()
+    while task.wait(5) do
+        Wenn settings.autoClaim dann
+            autoClaimLogic()
+        Ende
+    Ende
+Ende)
+
+task.spawn(function()
+    local lastHop = tick()
+    while task.wait(5) do
+        Wenn settings.autoHop und (tick() - lastHop) > settings.hopInterval, dann serverHop()
+    Ende
+Ende)
+
+-- Automatische Tanzschleife
+task.spawn(function()
+    while task.wait(settings.danceInterval) do
+        Wenn settings.autoDance dann
+            local randomDance = DANCE_EMOTES[math.random(1, #DANCE_EMOTES)]
+            say(randomDance)
+            print("💃 Auto Dance: " .. randomDance)
+        Ende
+    Ende
+Ende)
+
+player.Idled:Connect(function() if settings.antiAfk then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end end)
+TextChatService.MessageReceived:Connect(function(m)
+    local t = m.Text:lower()
+    Wenn settings.autoThanks aktiviert ist und t:find("donated") und t:find(myName) dann task.wait(1) say(settings.thanksMessage) end
+Ende)
+
+UserInputService.InputBegan:Connect(function(i, p) if not p and i.KeyCode == Enum.KeyCode.J then Main.Visible = not Main.Visible end end)
+
+print("✅ Kraltis Hub V3 Smart Claim geladen!")
+print("🔄 Automatische Anspruchserhebung standardmäßig aktiviert!")
+print("💃 Auto-Dance-Funktion hinzugefügt!")
